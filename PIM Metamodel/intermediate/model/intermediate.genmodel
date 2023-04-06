@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<genmodel:GenModel xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore"
+    xmlns:genmodel="http://www.eclipse.org/emf/2002/GenModel" modelDirectory="/PIMMetamodel/src" modelPluginID="PIMMetamodel"
+    modelName="Intermediate" rootExtendsClass="org.eclipse.emf.ecore.impl.MinimalEObjectImpl$Container"
+    importerID="org.eclipse.emf.importer.ecore" complianceLevel="5.0" copyrightFields="false"
+    operationReflection="true" importOrganizing="true">
+  <foreignModel>intermediate.ecore</foreignModel>
+  <genPackages prefix="Intermediate" disposableProviderFactory="true" ecorePackage="intermediate.ecore#/">
+    <genEnums typeSafeEnumCompatible="false" ecoreEnum="intermediate.ecore#//LogicalOperator">
+      <genEnumLiterals ecoreEnumLiteral="intermediate.ecore#//LogicalOperator/XOR"/>
+      <genEnumLiterals ecoreEnumLiteral="intermediate.ecore#//LogicalOperator/AND"/>
+      <genEnumLiterals ecoreEnumLiteral="intermediate.ecore#//LogicalOperator/OR"/>
+    </genEnums>
+    <genEnums typeSafeEnumCompatible="false" ecoreEnum="intermediate.ecore#//TimeDistribution">
+      <genEnumLiterals ecoreEnumLiteral="intermediate.ecore#//TimeDistribution/Exponential"/>
+      <genEnumLiterals ecoreEnumLiteral="intermediate.ecore#//TimeDistribution/Normal"/>
+      <genEnumLiterals ecoreEnumLiteral="intermediate.ecore#//TimeDistribution/Constant"/>
+      <genEnumLiterals ecoreEnumLiteral="intermediate.ecore#//TimeDistribution/Weibull"/>
+    </genEnums>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//Element">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//Element/name"/>
+    </genClasses>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//InputElement"/>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//OutputElement">
+      <genFeatures property="None" children="true" createChild="true" ecoreFeature="ecore:EReference intermediate.ecore#//OutputElement/nextelement"/>
+    </genClasses>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//InputOnlyElement"/>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//IOElement"/>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//OutputOnlyElement"/>
+    <genClasses ecoreClass="intermediate.ecore#//SimulationInfo">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//SimulationInfo/runTime"/>
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//SimulationInfo/name"/>
+      <genFeatures property="None" children="true" createChild="true" ecoreFeature="ecore:EReference intermediate.ecore#//SimulationInfo/interarrivaltimedescriptor"/>
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//SimulationInfo/maxEntities"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//InterarrivalTimeDescriptor">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//InterarrivalTimeDescriptor/DistributionType"/>
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//InterarrivalTimeDescriptor/DistributionParameters"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//SimpleActivity">
+      <genFeatures property="None" children="true" createChild="true" ecoreFeature="ecore:EReference intermediate.ecore#//SimpleActivity/messagesubpath"/>
+      <genFeatures property="None" children="true" createChild="true" ecoreFeature="ecore:EReference intermediate.ecore#//SimpleActivity/timersubpath"/>
+      <genFeatures property="None" children="true" createChild="true" ecoreFeature="ecore:EReference intermediate.ecore#//SimpleActivity/errorsubpath"/>
+      <genFeatures property="None" children="true" createChild="true" ecoreFeature="ecore:EReference intermediate.ecore#//SimpleActivity/signalsubpath"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//EndToken"/>
+    <genClasses ecoreClass="intermediate.ecore#//MultiPath">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//MultiPath/logicalOperator"/>
+      <genFeatures property="None" children="true" createChild="true" ecoreFeature="ecore:EReference intermediate.ecore#//MultiPath/pathtoken"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//PathToken"/>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//Activity">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//Activity/bufferCapacity"/>
+      <genFeatures property="None" children="true" createChild="true" ecoreFeature="ecore:EReference intermediate.ecore#//Activity/resourcedescriptor"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//ResourceDescriptor">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//ResourceDescriptor/serviceTimeDistributionType"/>
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//ResourceDescriptor/serviceTimeDistributionParameters"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//MessageSendActivity"/>
+    <genClasses ecoreClass="intermediate.ecore#//Message">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//Message/delayDistributionType"/>
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//Message/delayDistributionParameters"/>
+      <genFeatures notify="false" createChild="false" propertySortChoices="true" ecoreFeature="ecore:EReference intermediate.ecore#//Message/messagerecipient"/>
+      <genFeatures notify="false" createChild="false" propertySortChoices="true" ecoreFeature="ecore:EReference intermediate.ecore#//Message/messagesender"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//MessageReceiveActivity"/>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//EventDependentSubPath">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//EventDependentSubPath/Interrupt"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//TimerSubPath">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//TimerSubPath/triggerAfterSeconds"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//SignalSubPath"/>
+    <genClasses ecoreClass="intermediate.ecore#//ErrorSubPath">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute intermediate.ecore#//ErrorSubPath/errorDescription"/>
+    </genClasses>
+    <genClasses ecoreClass="intermediate.ecore#//MessageSubPath"/>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//MessageRecipient">
+      <genFeatures notify="false" createChild="false" propertySortChoices="true" ecoreFeature="ecore:EReference intermediate.ecore#//MessageRecipient/message"/>
+    </genClasses>
+    <genClasses image="false" ecoreClass="intermediate.ecore#//MessageSender">
+      <genFeatures notify="false" createChild="false" propertySortChoices="true" ecoreFeature="ecore:EReference intermediate.ecore#//MessageSender/message"/>
+    </genClasses>
+  </genPackages>
+</genmodel:GenModel>

@@ -1,0 +1,236 @@
+modeltype BPMN "strict" uses bpmn2("http://www.omg.org/spec/BPMN/20100524/MODEL-XMI");
+modeltype PIM uses "http://org.lnu.pim";
+transformation BPMN2PIM(in SrcModel:BPMN, out DestModel:PIM);
+
+main() {
+	log("beginning");
+	SrcModel.objects()[Process] -> map Process2Int();
+	log("main executed");
+}
+
+mapping BPMN::Process::Process2Int() : PIM::SimulationInfo {
+	init {
+		self.subobjectsOfType(SequenceFlow) -> forEach(i) {
+			i.connected := false;
+		};
+		var rt := self.documentation.text -> extract("runTime").toReal();
+		if(rt.oclIsInvalid()) {
+			log("Invalid or missing Run Time for the current process. Using default value.");
+			rt := 10.0;
+		};
+		var me := self.documentation.text -> extract("maxEntities").toInteger();
+		if(me.oclIsInvalid()) {
+			log("Invalid or missing Max Entities threshold for the current process. No threshold will be set.");
+			me := -1;
+		}
+	}
+	name := self.name;
+	runTime := rt;
+	maxEntities := me;
+	end {
+		self.subobjectsOfKind(FlowNode) -> map BlockMapping();
+		while(self.subobjectsOfType(SequenceFlow) -> select(i | i.connected = false) -> size() != 0) {
+			self.subobjectsOfType(SequenceFlow) -> select(i | i.connected = false) -> forEach(i) {
+				var source := i.sourceRef.resolveone(OutputElement);
+				var target := i.targetRef.resolveone(InputElement);
+				if(i.sourceRef.oclIsKindOf(BPMN::Gateway) and i.sourceRef.oclAsType(BPMN::Gateway).gatewayDirection = GatewayDirection::Diverging) {
+					var assigned := false;
+					i.sourceRef.resolveone(PIM::MultiPath).pathtoken -> forEach(j) {
+						if(j.nextelement.oclIsUndefined() and assigned = false) {
+							source := j;
+							assigned := true;
+						};
+					};
+				} elif(i.sourceRef.oclIsKindOf(BPMN::Gateway) and i.sourceRef.oclAsType(BPMN::Gateway).gatewayDirection = GatewayDirection::Converging) {
+					source := i.sourceRef.oclAsType(BPMN::Gateway).findRelated().resolveone(OutputElement);
+				};
+				if(i.targetRef.oclIsKindOf(BPMN::Gateway) and i.targetRef.oclAsType(BPMN::Gateway).gatewayDirection = GatewayDirection::Converging) {
+					var assigned := false;
+					DestModel.objects()[EndToken] -> select(t | t.convergingGateway = i.targetRef) -> forEach(k) {
+						if(k.container().oclIsUndefined() and assigned = false) {
+							target := k;
+							assigned := true;
+						};
+					}
+				};
+				if(source = null) {
+					continue;
+				};
+				source.nextelement := target;
+				i.connected := true;
+			};
+		};	
+	}
+}
+
+helper BPMN::Gateway::findRelated() : BPMN::Gateway {
+	DestModel.objects()[EndToken] -> select(t | t.convergingGateway = self) -> forEach(k){
+		var current := k.container();
+		while(current.oclIsUndefined() = false) {
+			if(current.oclIsTypeOf(PathToken)) {
+				return current.container().invresolveone(BPMN::Gateway);
+			} else {
+				current := current.container();
+			}
+		}
+	};
+	return null;
+}
+
+mapping BPMN::FlowNode::ActivityMapping() : PIM::SimpleActivity when {self.oclIsTypeOf(Task)} {
+	init {
+		var num := self.documentation.text -> extract("numberOfServers").toInteger();
+		var q := self.documentation.text -> extract("queueCapacity").toInteger();
+		var std := self.documentation.text -> extract('serviceTime').toTimeDistribution();
+		var stp := self.documentation.text -> extract('serviceTimeParameters').toRealOrArray();
+		var s : OrderedSet(ResourceDescriptor) := OrderedSet{};
+		if(q.oclIsInvalid()) {
+			log("Invalid or missing Queue Capacity for activity " + self.name + ". Using default value.");
+			q := 25;	
+		};
+		if (std.oclIsInvalid()){
+			log("Invalid or missing Service Time Distribution for activity " + self.name + ". Using default value.");
+			std := TimeDistribution::Exponential;
+		};
+		if (stp.oclIsInvalid()){
+			log("Invalid or missing Service Time Parameters for activity " + self.name + ". Using default value.");
+			stp := OrderedSet{1.0};
+		};
+		if (num.oclIsInvalid()) {
+			log("Invalid or missing number of servers for activity " + self.name + ". Using default value.");
+			num := 1;
+		};
+		while (s -> size() < num) {
+			s := s -> append(new ResourceDescriptor(std,stp));
+		}
+	}
+	name := self.name;
+	resourcedescriptor := s;
+	bufferCapacity := q;
+}
+
+mapping BPMN::FlowNode::ExclusiveDivergingGatewayMapping() : PIM::MultiPath when {self.oclIsTypeOf(ExclusiveGateway) and (self.oclAsType(ExclusiveGateway).gatewayDirection = GatewayDirection::Diverging)} {
+	init {
+		var sp : OrderedSet(PathToken) := OrderedSet{};
+		self.outgoing -> forEach(i) {
+			sp := sp -> append(new PathToken());
+		};
+	}
+	name := self.name;
+	logicalOperator := LogicalOperator::XOR;
+	pathtoken := sp;
+}
+
+mapping BPMN::FlowNode::ParallelDivergingGatewayMapping() : PIM::MultiPath when {self.oclIsTypeOf(ParallelGateway) and (self.oclAsType(ParallelGateway).gatewayDirection = GatewayDirection::Diverging)} {
+	init {
+		var sp : OrderedSet(PathToken) := OrderedSet{};
+		self.outgoing -> forEach(i) {
+			sp := sp -> append(new PathToken());
+		};
+	}
+	name := self.name;
+	logicalOperator := LogicalOperator::AND;
+	pathtoken := sp;
+}
+
+mapping BPMN::FlowNode::ConvergingGatewayMapping() : PIM::EndToken when {self.oclIsKindOf(BPMN::Gateway) and (self.oclAsType(BPMN::Gateway).gatewayDirection = GatewayDirection::Converging)} {
+	init {
+		var prefix := "PathEnd";
+		var incomingSize := self.incoming -> size();
+	}
+	name := prefix + " " + 1.toString() + " " + self.name;
+	
+	end {
+		var i := 0;
+		while(i < incomingSize - 1) {
+			new EndToken(prefix + " " + (i + 2).toString() + " " + self.name, self.oclAsType(BPMN::Gateway));
+			i := i + 1;
+		}
+	}
+}
+
+mapping BPMN::FlowNode::TerminatorMapping() : PIM::EndToken when {self.oclIsTypeOf(EndEvent)} {
+	name := self.name;
+	convergingGateway := null;
+}
+
+mapping BPMN::FlowNode::GeneratorMapping() : PIM::InterarrivalTimeDescriptor when {self.oclIsTypeOf(StartEvent)} {
+	init {
+		var itd := self.documentation.text -> extract('interarrivalTime').toTimeDistribution();
+		var itp := self.documentation.text -> extract('interarrivalTimeParameters').toRealOrArray();
+		if (itd.oclIsInvalid()){
+			log("Invalid or missing Interarrival Time Distribution for the Generator. Using default value.");
+			itd := TimeDistribution::Exponential;
+		};
+		if (itp.oclIsInvalid()){
+			log("Invalid or missing Interarrival Time Parameters for the Generator. Using default value.");
+			itp := OrderedSet{1.0};
+		};
+	}
+	name := self.name;
+	DistributionType := itd;
+	DistributionParameters := itp;
+	end {
+		SrcModel.objects()[Process].resolveone(SimulationInfo).interarrivaltimedescriptor := result;
+	}
+}
+
+mapping BPMN::FlowNode::BlockMapping() : PIM::Element disjuncts FlowNode::GeneratorMapping, FlowNode::IBlockMapping {}
+
+mapping BPMN::FlowNode::IBlockMapping() : PIM::InputElement disjuncts FlowNode::ActivityMapping, FlowNode::ExclusiveDivergingGatewayMapping, FlowNode::ParallelDivergingGatewayMapping, FlowNode::TerminatorMapping, FlowNode::ConvergingGatewayMapping {}
+
+constructor EndToken::EndToken(s : String, c : BPMN::Gateway) {
+	name := s;
+	convergingGateway := c;
+}
+
+constructor PathToken::PathToken() {
+	
+}
+
+constructor ResourceDescriptor::ResourceDescriptor(std : PIM::TimeDistribution, stp : OrderedSet(Real)) {
+	serviceTimeDistributionType := std;
+	serviceTimeDistributionParameters := stp;
+}
+
+helper Bag(String)::extract(v : String) : String {
+	var plaintext := self -> collectOne(i | i);
+	while(plaintext.indexOf(";").oclIsUndefined() = false) {
+		var substr := plaintext.substringBefore(";");
+		var name := substr.substringBefore(":");
+		var value := substr.substringAfter(":");
+		if(name = v) {
+			return value;
+		};
+		plaintext := plaintext.substringAfter(";");
+	};
+	return null;
+}
+
+helper String::toTimeDistribution() : PIM::TimeDistribution {
+	if(self = "Exponential") {
+		return TimeDistribution::Exponential;
+	} elif (self = "Normal") {
+		return TimeDistribution::Normal;
+	} else {
+		return invalid;
+	}
+}
+
+helper String::toRealOrArray() : OrderedSet(Real) {
+	var st : OrderedSet(Real) := OrderedSet{};
+	if(self.indexOf("[") = 0) {
+		st := st -> append(self.toReal());
+		return st;
+	};
+	var arrayContent := self.substringAfter("[");
+	while(arrayContent.indexOf(",") != 0) {
+		st := st -> append(arrayContent.substringBefore(",").toReal());
+		arrayContent := arrayContent.substringAfter(",");
+	};
+	st := st -> append(arrayContent.substringBefore("]").toReal());
+	return st;
+}
+
+intermediate property EndToken::convergingGateway : BPMN::Gateway;
+intermediate property SequenceFlow::connected : Boolean;
