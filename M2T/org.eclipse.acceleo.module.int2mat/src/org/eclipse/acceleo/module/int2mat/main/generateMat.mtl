@@ -1,0 +1,1038 @@
+[comment encoding = UTF-8 /]
+[module generateMat('http://org.lnu.pim')]
+
+
+[template public generateElement(aSystem : SimulationInfo)]
+[comment @main/]
+[file ('simulinkModelGenerator.m', false, 'UTF-8')]
+if ~require({'Simulink', 'SimEvents', 'Statistics and Machine Learning Toolbox'})
+	return;
+end
+bdclose('all');
+clearvars in;
+fprintf(logging('Starting Simulink environment'));
+s = new_system();
+n = names();
+prompt='Type the desired number of simulations:\n';
+SIMULATIONS = input(prompt);
+seed = 0; %Prevents warnings
+activities = {};
+global name;
+name = get_param(s, 'Name');
+fprintf(logging('Building the simulation model'));
+
+[aSystem.eContents(InterarrivalTimeDescriptor).eContents(Element).decode(1, 1)/]
+
+system_builder(mySystem, '[if aSystem.runTime = -1]inf[else][aSystem.runTime/][/if]', '[aSystem.eContents(InterarrivalTimeDescriptor).DistributionType/]', {[for(p : Real | aSystem.eContents(InterarrivalTimeDescriptor).DistributionParameters)][if aSystem.eContents(InterarrivalTimeDescriptor).DistributionParameters->indexOf(p) <> 1], [/if][p/][/for]});
+Simulink.BlockDiagram.arrangeSystem(name);
+save_system(name, n.SAVEPATH);
+%open_system(n.FILENAME);
+fprintf(logging('Preparing the simulation environment'));
+for i = SIMULATIONS:-1:1
+	in(i) = Simulink.SimulationInput('[aSystem.name.replaceAll(' ','_')/]');
+	in(i) = in(i).setPostSimFcn(@(x) postSim(x));
+	in(i) = in(i).setVariable('seed',i);
+end
+out = parsim(in);
+%save_system('[aSystem.name.replaceAll(' ','_')/]', n.SAVEPATH);
+sorting = {};
+for j = 1:size(activities, 2)
+	sorting{end+1} = activities{j}{1};
+end
+[ '[' /]sorting, I[ ']' /] = sort(sorting);
+dashboard(activities(I));
+bdclose(n.FILENAME);
+clearvars -except out dbg;
+
+
+%Constants definition
+
+function res = names()
+	%Paths and Names
+	res.SAVEDIR = './';
+	res.FILENAME = '[aSystem.name.replaceAll(' ','_')/]';
+	res.OUTPUTDIR = '[aSystem.name.replaceAll(' ','_')/]_out';
+	res.SAVEPATH = strcat(res.SAVEDIR,res.FILENAME);
+	res.OUTPUTPATH = strcat(res.SAVEDIR, res.OUTPUTDIR, '/');
+
+	%Libraries
+	res.SIMEVENTS = 'sldelib/';
+	res.SINKS = 'simulink/Sinks/';
+	res.SUBLIB = 'simulink/Ports & Subsystems/';
+	res.SOURCES = 'simulink/Sources/';
+	res.FUNCTIONS = 'simulink/User-Defined Functions/';
+	res.LOGIC = 'simulink/Logic and Bit Operations/';
+
+	%Blocks
+	res.GENERATOR = strcat(res.SIMEVENTS,'Entity Generator');
+	res.QUEUE = strcat(res.SIMEVENTS,'Entity Queue');
+	res.SERVER = strcat(res.SIMEVENTS,'Entity Server');
+	res.TERMINATOR = strcat(res.SIMEVENTS,'Entity Terminator');
+	res.REPLICATOR = strcat(res.SIMEVENTS,'Entity Replicator');
+	res.STORE = strcat(res.SIMEVENTS,'Entity Store');
+	res.SELECTOR = strcat(res.SIMEVENTS,'Entity Selector');
+	res.VIEWER = strcat(res.SIMEVENTS,'Sequence Viewer');
+	res.SCOPE = strcat(res.SINKS, 'Scope');
+	res.SUBSYSTEM = strcat(res.SUBLIB, 'Subsystem');
+	res.INPUTSWITCH = strcat(res.SIMEVENTS, 'Entity Input Switch');
+	res.OUTPUTSWITCH = strcat(res.SIMEVENTS, 'Entity Output Switch');
+	res.TOWORKSPACE = strcat(res.SINKS, 'To Workspace');
+	res.CONSTANT = strcat(res.SOURCES, 'Constant');
+	res.MATLABFUNCTION = strcat(res.FUNCTIONS, 'MATLAB Function');
+	res.SEND = strcat(res.SIMEVENTS, 'Message Send');
+	res.GATE = strcat(res.SIMEVENTS, 'Entity Gate');
+	res.RELOP = strcat(res.LOGIC, 'Relational Operator');
+	res.STOP = strcat(res.SINKS, 'Stop Simulation');
+	res.DCLOCK = strcat(res.SOURCES, 'Digital Clock');
+	
+end
+
+%Simulink Editor Functions
+function block(libname, blockname, blockpath)
+	arguments
+		libname string
+		blockname string
+		blockpath {mustBeTextScalar} = "NaN"
+	end
+	global name;
+	if blockpath == "NaN"
+		blockpath = name;
+	end
+	add_block(libname, strcat(blockpath, '/', blockname));
+end
+
+function connect(inblock, inport, outblock, outport, blockpath)
+	arguments
+		inblock string
+		inport
+		outblock string
+		outport
+		blockpath {mustBeTextScalar} = "NaN"
+	end
+	global name;
+	if blockpath == "NaN"
+		blockpath = name;
+	end
+	if isa(inport,'double')
+		inport = int2str(inport);
+	end
+	if isa(outport,'double')
+		outport = int2str(outport);
+	end
+	add_line(blockpath, strcat(inblock, '/', inport), strcat(outblock, '/', outport));
+end
+
+function apply(block, prop, blockpath)
+	arguments
+		block string
+		prop containers.Map
+		blockpath {mustBeTextScalar} = "NaN"
+	end
+	global name;
+	if blockpath == "NaN"
+		blockpath = name;
+	end
+	blockname = strcat(blockpath, '/', block);
+	keys = prop.keys;
+	val = values(prop);
+	for i = 1:prop.length
+		set_param(blockname, keys{1,i}, val{1,i});
+	end
+end
+
+function setAttributes(block, names, values, blockpath)
+	arguments
+		block string
+		names string
+		values string
+		blockpath {mustBeTextScalar} = "NaN"
+	end
+	global name;
+	if blockpath == "NaN"
+		blockpath = name;
+	end
+	blockname = strcat(blockpath, '/', block);
+	set_param(blockname, 'AttributeName', names, 'AttributeInitialValue', values);
+	set_param(blockname, 'AttributeName', names, 'AttributeInitialValue', values);
+end
+
+function act = activity(sname, queuecap, nofservers, servicetimedistrib, servicetimeparams, blockpath)
+	arguments
+		sname string
+		queuecap double
+		nofservers double
+		servicetimedistrib string
+		servicetimeparams (1,2) cell = {1.0, 1.0}
+		blockpath {mustBeTextScalar} = "NaN"
+	end
+	global name;
+	if blockpath == "NaN"
+		blockpath = name;
+	end
+	n = names();
+	block(n.SUBSYSTEM, sname, blockpath);
+	subsystempath = blockpath + "/" + sname;
+	delete_line(subsystempath, "In1/1", "Out1/1");
+	queuename = sname + " Queue";
+	serversPrefix = sname + " Server";
+	block(n.QUEUE, queuename, subsystempath);
+	queueProp = containers.Map();
+	queueProp('Capacity') = int2str(queuecap);
+	queueProp('AverageWait') = 'on';
+	twname = queuename + "AvgWait";
+	block(n.TOWORKSPACE, twname, subsystempath);
+	apply(queuename, queueProp, subsystempath);
+	twsProp = containers.Map();
+	twsProp('VariableName') = strrep(twname,' ','');
+	apply(twname, twsProp, subsystempath);
+	connect(queuename, 1, twname, 1, subsystempath);
+	connect("In1", 1, queuename, 1, subsystempath);
+	if nofservers == 1
+		scopename = serversPrefix + "Utilization";
+		block(n.SERVER, serversPrefix, subsystempath);
+		block(n.TOWORKSPACE, scopename, subsystempath);
+		serverProp = containers.Map();
+		serverProp('ServiceTimeSource') = 'MATLAB action';
+		serverProp('Utilization') = 'on';
+		if servicetimedistrib == "Exponential"
+			serverProp('ServiceTimeAction') = exponential(servicetimeparams{1});
+		else
+			serverProp('ServiceTimeAction') = normal(servicetimeparams{1}, servicetimeparams{2});
+		end
+		apply(serversPrefix, serverProp, subsystempath);
+		twsProp = containers.Map();
+		twsProp('VariableName') = strrep(scopename,' ','');
+		apply(scopename, twsProp, subsystempath);
+		connect(serversPrefix, 1, scopename, 1, subsystempath);
+		connect(queuename, 2, serversPrefix, 1, subsystempath);
+		connect(serversPrefix, 2, "Out1", 1, subsystempath);
+	else
+		outswitchname = sname + " Instradation";
+		inswitchname = sname + " Collection";
+		block(n.OUTPUTSWITCH, outswitchname, subsystempath);
+		outProp = containers.Map();
+		outProp('NumberOutputPorts') = int2str(nofservers);
+		apply(outswitchname, outProp, subsystempath);
+		block(n.INPUTSWITCH, inswitchname, subsystempath);
+		inProp = containers.Map();
+		inProp('NumberInputPorts') = int2str(nofservers);
+		apply(inswitchname, inProp, subsystempath);
+		connect(queuename, 2, outswitchname, 1, subsystempath);
+		for i = 1:nofservers
+			servername = serversPrefix + int2str(i);
+			scopename = servername + "Utilization";
+			block(n.SERVER, servername, subsystempath);
+			block(n.TOWORKSPACE, scopename, subsystempath);
+			serverProp = containers.Map();
+			serverProp('ServiceTimeSource') = 'MATLAB action';
+			serverProp('Utilization') = 'on';
+			if servicetimedistrib == "Exponential"
+				serverProp('ServiceTimeAction') = exponential(servicetimeparams{1});
+			else
+				serverProp('ServiceTimeAction') = normal(servicetimeparams{1}, servicetimeparams{2});
+			end
+			apply(servername, serverProp, subsystempath);
+			twsProp = containers.Map();
+			twsProp('VariableName') = strrep(scopename,' ','');
+			apply(scopename, twsProp, subsystempath);
+			connect(servername, 1, scopename, 1, subsystempath);
+			connect(outswitchname, i, servername, 1, subsystempath);
+			connect(servername, 2, inswitchname, i, subsystempath);
+		end
+		connect(inswitchname, 1, "Out1", 1, subsystempath);
+	end
+	act = subsystempath;
+	Simulink.BlockDiagram.arrangeSystem(subsystempath);
+end
+
+%Time Distributions
+
+function x = makegen(str)
+	c = newline;
+	x = "function dt = fcn(u)" + c + ...
+		"persistent rngInit;" + c + ...
+		"if isempty(rngInit)" + c + ...
+    		"rng(u);" + c + ...
+    		"rngInit = true;" + c + ...
+		"end" + c + ...
+		str + c + ...
+		"end";
+end
+
+function x = exponential(mean)
+	c = newline;
+	x = "mu = " + num2str(mean) + ";" + c + ...
+		"dt = -mu * log(1 - rand());";
+end
+
+function x = normal(mean, standardDev)
+	c = newline;
+	x = "m = " + num2str(mean) + ";" + c + ...
+		"d = " + num2str(standardDev) + ";" + c + ...
+		"dt = m + d * randn();" + c + ...
+		"if dt < 0" + c + ...
+			"dt = -dt;" + c + ...
+		"end";
+end
+
+%Initializations
+
+function x = genCount()
+	c = newline;
+	x = "coder.extrinsic('get_param');" + c + ...
+		"persistent num;" + c + ...
+		"if isempty(num)" + c + ...
+			"num = 0;" + c + ...
+		"end" + c + ...
+		"entity.ID = num;" + c + ...
+		"num = num + 1;" + c + ...
+		"entity.StartTime = get_param('[aSystem.name.replaceAll(' ','_')/]', 'SimulationTime');";
+end
+
+function newout = postSim(x)
+	eid = x.entities.ID.Data(:);
+	eet = x.entities.ID.Time;
+	est = x.entities.StartTime.Data(:);
+	newout = x;
+	newout.entityID = eid;
+	newout.entityET = eet;
+	newout.entityST = est;
+end
+
+%Gateways
+
+function subsystempath = xorGate(gatename, cellarray, blockpath)
+	arguments
+		gatename string
+		cellarray cell
+		blockpath {mustBeTextScalar} = "NaN"
+	end
+	global name;
+	if blockpath == "NaN"
+		blockpath = name;
+	end
+	n = names();
+	dim = size(cellarray);
+	len = dim(2);
+	block(n.SUBSYSTEM, gatename, blockpath);
+	subsystempath = blockpath + "/" + gatename;
+	delete_line(subsystempath, "In1/1", "Out1/1");
+	outswitchname = gatename + " Instradation";
+	inswitchname = gatename + " Collection";
+	block(n.OUTPUTSWITCH, outswitchname, subsystempath);
+	outProp = containers.Map();
+	outProp('NumberOutputPorts') = int2str(len);
+	outProp('SwitchingCriterion') = 'Equiprobable';
+	outProp('Seed') = '123';
+	apply(outswitchname, outProp, subsystempath);
+	connect("In1", 1, outswitchname, 1, subsystempath);
+	block(n.INPUTSWITCH, inswitchname, subsystempath);
+	inProp = containers.Map();
+	inProp('NumberInputPorts') = int2str(len);
+	apply(inswitchname, inProp, subsystempath);
+	connect(inswitchname, 1, "Out1", 1, subsystempath);
+	for i = 1:len
+		currentPath = cellarray{i};
+		prevName = outswitchname;
+		dimPath = size(currentPath);
+		lenPath = dimPath(1);
+		if lenPath == 0
+			connect(outswitchname, i, inswitchname, i, subsystempath);
+		end
+		for j = 1:lenPath
+			currentEntry = currentPath(j,:);
+			currentType = currentEntry{1};
+			currentName = currentEntry{2};
+			currentData = currentEntry{3};
+			if currentType == "activity"
+				activity(currentName, currentData{1}, currentData{2}, currentData{3}, currentData{4}, subsystempath);
+			elseif currentType == "xor"
+				xorGate(currentName, currentData, subsystempath);
+			elseif currentType == "and"
+				andGate(currentName, currentData, subsystempath);
+			else
+				continue
+			end
+			if j == 1
+				connect(prevName, i, currentName, 1, subsystempath);
+			else
+				connect(prevName, 1, currentName, 1, subsystempath);
+			end
+			if j == lenPath
+				connect(currentName, 1, inswitchname, i, subsystempath);
+			end
+			prevName = currentName;
+		end
+	end
+	Simulink.BlockDiagram.arrangeSystem(subsystempath);
+end
+
+function subsystempath = andGate(gatename, cellarray, blockpath)
+	arguments
+		gatename string
+		cellarray cell
+		blockpath {mustBeTextScalar} = "NaN"
+	end
+	global name;
+	if blockpath == "NaN"
+		blockpath = name;
+	end
+	n = names();
+	dim = size(cellarray);
+	len = dim(2);
+	block(n.SUBSYSTEM, gatename, blockpath);
+	subsystempath = blockpath + "/" + gatename;
+	delete_line(subsystempath, "In1/1", "Out1/1");
+	replicatorname = gatename + " Replicator";
+	block(n.REPLICATOR, replicatorname, subsystempath);
+	repProp = containers.Map();
+	repProp('HoldOriginalEntityUntilAllReplicasDepart') = 'on';
+	repProp('NumberReplicas') = int2str(len - 1);
+	apply(replicatorname, repProp, subsystempath);
+	connect("In1", 1, replicatorname, 1, subsystempath);
+	selectorname = gatename + " Selector";
+	block(n.SELECTOR, selectorname, subsystempath);
+	selProp = containers.Map();
+	selProp('mNumberOfStreams') = int2str(len - 1);
+	selProp('mEntityAttributeName') = "{'ID'}";
+	apply(selectorname, selProp, subsystempath);
+	connect(selectorname, 1, "Out1", 1, subsystempath);
+	termprefix = gatename + " Duplicates Destroyer";
+	for j = 2:len
+		termname = termprefix + " " + (j-1);
+		block(n.TERMINATOR, termname, subsystempath);
+		connect(selectorname, j, termname, 1, subsystempath);
+	end
+	for i = 1:len
+		currentPath = cellarray{i};
+		prevName = replicatorname;
+		storePrefix = gatename + " Store";
+		dimPath = size(currentPath);
+		lenPath = dimPath(1);
+		if lenPath == 0
+			storename = storePrefix;
+			block(n.STORE, storename, subsystempath);
+			storeProp = containers.Map();
+			storeProp('Capacity') = 'inf';
+			apply(storename, storeProp, subsystempath);
+			connect(replicatorname, i, storename, 1, subsystempath);
+			connect(storename, 1, selectorname, i, subsystempath);
+		end
+		for j = 1:lenPath
+			currentEntry = currentPath(j,:);
+			currentType = currentEntry{1};
+			currentName = currentEntry{2};
+			currentData = currentEntry{3};
+			if currentType == "activity"
+				activity(currentName, currentData{1}, currentData{2}, currentData{3}, currentData{4}, subsystempath);
+			elseif currentType == "xor"
+				xorGate(currentName, currentData, subsystempath);
+			elseif currentType == "and"
+				andGate(currentName, currentData, subsystempath);
+			else
+				continue
+			end
+			if j == 1
+				connect(prevName, i, currentName, 1, subsystempath);
+			else
+				connect(prevName, 1, currentName, 1, subsystempath);
+			end
+			if j == lenPath
+				storename = storePrefix + " " + i;
+				block(n.STORE, storename, subsystempath);
+				storeProp = containers.Map();
+				storeProp('Capacity') = 'inf';
+				apply(storename, storeProp, subsystempath);
+				connect(currentName, 1, storename, 1, subsystempath);
+				connect(storename, 1, selectorname, i, subsystempath);
+			end
+			prevName = currentName;
+		end
+	end
+	Simulink.BlockDiagram.arrangeSystem(subsystempath);
+end
+
+function system_builder(sys, runtime, genDistrib, genParams)
+	arguments
+		sys
+		runtime string
+		genDistrib string
+		genParams (1,2) cell = {1.0, 1.0}
+	end
+	n = names();
+	global name;
+	set_param(name, 'StopTime', runtime);
+	block(n.VIEWER,'SequenceViewer');
+	block(n.DCLOCK, 'Clock');
+	block(n.TOWORKSPACE, 'clockVar');
+	clkvarProp = containers.Map();
+	clkvarProp('VariableName') = 'clock';
+	apply('clockVar', clkvarProp);
+	connect('Clock', 1, 'clockVar', 1);
+	%Before System
+	block(n.GENERATOR,'Generator');
+	generatorProp = containers.Map();
+	generatorProp('TimeSource') = 'Signal port';
+	generatorProp('GenerateAction') = genCount();
+	generatorProp('GenerateEntityAtSimulationStart') = 'off';
+	generatorProp('NumberEntitiesDeparted') = 'on';
+	apply('Generator', generatorProp);
+	setAttributes('Generator','ID|StartTime','0|0');
+	block(n.CONSTANT, 'seed');
+	constantProp = containers.Map();
+	constantProp('Value') = 'seed';
+	apply('seed', constantProp);
+	block(n.MATLABFUNCTION, 'generationFunction');
+	config = get_param(strcat(name,"/generationFunction"), "MATLABFunctionConfiguration");
+	if genDistrib == "Exponential"
+		config.FunctionScript = makegen(exponential(genParams{1}));
+	else
+		config.FunctionScript = makegen(normal(genParams{1}, genParams{2}));
+	end
+	connect('seed', 1, 'generationFunction', 1);
+	connect('generationFunction', 1, 'Generator', 1);
+	block(n.GATE, 'controlGate');
+	gateProp = containers.Map();
+	gateProp('OpenGateAtSimulationStart') = 'on';
+	apply('controlGate', gateProp);
+	connect('Generator', 2, 'controlGate', 2);
+	block(n.CONSTANT, 'maxEntities');
+	maxEntitiesProp = containers.Map();
+	maxEntitiesProp('Value') = '[if aSystem.maxEntities = -1]inf[else][aSystem.maxEntities/][/if]';
+	apply('maxEntities', maxEntitiesProp);
+	block(n.RELOP, 'departComparison');
+	dcProp = containers.Map();
+	dcProp('Operator') = '<';
+	apply('departComparison', dcProp);
+	connect('Generator', 1, 'departComparison', 1);
+	connect('maxEntities', 1, 'departComparison', 2);
+	block(n.SEND, 'enableMsg');
+	connect('departComparison', 1, 'enableMsg', 1);
+	connect('enableMsg', 1, 'controlGate', 1);
+	%After System
+	block(n.QUEUE, 'arrivalQueue');
+	aqProp = containers.Map();
+	aqProp('Capacity') = 'inf';
+	aqProp('NumberEntitiesDeparted') = 'on';
+	apply('arrivalQueue', aqProp);
+	block(n.TOWORKSPACE, 'entities');
+	twsProp = containers.Map();
+	twsProp('VariableName') = 'entities';
+	apply('entities', twsProp);
+	connect('arrivalQueue', 2, 'entities', 1);
+	block(n.RELOP, 'arrivalComparison');
+	acProp = containers.Map();
+	acProp('Operator') = '==';
+	apply('arrivalComparison', acProp);
+	connect('maxEntities', 1, 'arrivalComparison', 1);
+	connect('arrivalQueue', 1, 'arrivalComparison', 2);
+	block(n.STOP, 'stopTrigger');
+	connect('arrivalComparison', 1, 'stopTrigger', 1);
+	%System
+	dimSys = size(sys);
+	lenSys = dimSys(1);
+	prevName = 'controlGate';
+	for j = 1:lenSys
+		currentEntry = sys(j,:);
+		currentType = currentEntry{1};
+		currentName = currentEntry{2};
+		currentData = currentEntry{3};
+		if currentType == "activity"
+			activity(currentName, currentData{1}, currentData{2}, currentData{3}, currentData{4});
+		elseif currentType == "xor"
+			xorGate(currentName, currentData);
+		elseif currentType == "and"
+			andGate(currentName, currentData);
+		else
+			continue
+		end
+		connect(prevName, 1, currentName, 1);
+		if j == lenSys
+			connect(currentName, 1, 'arrivalQueue', 1);
+		end
+		prevName = currentName;
+	end
+end
+
+%Dashboard
+
+function dashboard(act)
+	dimAct = size(act);
+	numAct = dimAct(2);
+	filepaths = {};
+	rowcontainer = [ '[' /][ ']' /];
+	db = [ '[' /][ ']' /];
+	rows = floor(sqrt(numAct+2));
+	columns = ceil((numAct+2)/rows);
+	padding = - (numAct+2) + (rows*columns);
+	out = evalin("base", "out");
+	s = size(out);
+	simnum = s(2);
+	maxRunTime = -1;
+	for j=1:simnum
+		maxRunTime = max(maxRunTime, out(j).clock.Data(end));
+	end
+	if maxRunTime > 3600
+		timeunit = 'hours';
+	elseif maxRunTime > 60
+		timeunit = 'minutes';
+	else
+		timeunit = 'seconds';
+	end
+	n = names();
+	[ '[' /]status, msg[ ']' /] = mkdir(n.OUTPUTDIR);
+	fprintf(logging('Creating the Completed Order graph'));
+	[ '[' /]filepaths{end+1}, xgraphlimit[ ']' /] = out_graph(timeunit, simnum, maxRunTime);
+	fprintf(logging('Creating the Utilization graph(s)'));
+	for j = 1:numAct
+		filepaths{end+1} = util_graph(act{j}, timeunit, simnum, maxRunTime, xgraphlimit);
+	end
+	fprintf(logging('Creating the Average Waiting Time graph'));
+	filepaths{end+1} = wait_graph(act, numAct, timeunit, simnum, maxRunTime, xgraphlimit);
+	for j = 1:rows
+		for k = 1:columns
+			index = (j-1) * columns + k;
+			if k == 1
+				rowcontainer = imread(filepaths{index});
+			else
+				try
+					rowcontainer = cat(2,rowcontainer,imread(filepaths{index}));
+				catch
+				end
+			end
+		end
+		if isempty(db)
+			db = rowcontainer;
+		else
+			if padding ~= 0 && j == rows
+				f = figure('Name', 'bk', 'WindowState', 'fullscreen', 'NumberTitle', 'off','visible','off', 'Color', 'none');
+				set_background();
+				filepath = strcat(n.OUTPUTPATH, 'bk.png');
+				saveas(f, filepath);
+				close(f);
+				for t = 1:padding
+					rowcontainer = cat(2,rowcontainer,imread(filepath));
+				end
+				delete(filepath);
+			end
+			db = cat(1,db,rowcontainer);
+		end
+	end
+	imwrite(db, strcat(n.OUTPUTPATH, 'DTODashboard.png'));
+	fprintf(logging('Opening the DTO Dashboard'));
+	figure('Name', 'DTO Dashboard', 'WindowState', 'fullscreen', 'NumberTitle', 'off');
+	imshow(db);
+end
+
+function set_background()
+	return;
+	background = webread("https://scontent-arn2-1.xx.fbcdn.net/v/t1.6435-9/95257515_10158408749816115_6036558469895553024_n.png?_nc_cat=102&ccb=1-7&_nc_sid=09cbfe&_nc_ohc=b9kTnWDDMWcAX_Erd0Q&_nc_ht=scontent-arn2-1.xx&oh=00_AT-w-TPusAhyJicuussDh2SQZbOteO15wPOZNV2LHHxtHQ&oe=6332D612");
+	ha = axes('units', 'normalized', 'position', [ '[' /]0 0 1 1[ ']' /]);
+	uistack(ha, 'bottom');
+	hi = imagesc(background);
+	colormap gray;
+	set(ha, 'handlevisibility', 'off', 'visible', 'off');
+	set(hi, 'alphadata', .4);
+end
+
+function [ '[' /]filepath, xlimit[ ']' /] = out_graph(timeunit, simnum, maxRunTime)
+	f = figure('Name', 'Completed Orders', 'WindowState', 'fullscreen', 'NumberTitle', 'off','visible','off', 'Color', 'none');
+	set_background();
+	maxid = 0;
+	for j = 1:simnum
+		if simnum == 1
+			num = "";
+		else
+			num = strcat("(", int2str(j), ")");
+		end
+		entityID = evalin("base", strcat("out", num, ".entityID"));
+		maxid = max(maxid,max(entityID));
+	end
+	orderedIDs = 0:maxid;
+	minstarts = [ '[' /][ ']' /];
+	maxends = [ '[' /][ ']' /];
+	missing_occurrencies = zeros(maxid+1,1);
+	startTimes = [ '[' /][ ']' /];
+	endTimes = [ '[' /][ ']' /];
+	halfmeanduration = zeros(maxid+1,1);
+	for j = 1:simnum
+		if simnum == 1
+			num = "";
+		else
+			num = strcat("(", int2str(j), ")");
+		end
+		ST = evalin("base", strcat("out", num, ".entityST"));
+		ET = evalin("base", strcat("out", num, ".entityET"));
+		ID = evalin("base", strcat("out", num, ".entityID"));
+		dif = setdiff(orderedIDs, ID);
+		for d = 1:length(dif)
+			missing_occurrencies(dif(d)+1) = missing_occurrencies(dif(d)+1) + 1;
+		end
+		ID = [ '[' /]ID;dif(:)[ ']' /];
+		ST = [ '[' /]ST;NaN(length(dif),1)[ ']' /];
+		ET = [ '[' /]ET;NaN(length(dif),1)[ ']' /];
+		[ '[' /]entityID pos[ ']' /] = sort(ID);
+		entityST = ST(pos);
+		entityET = ET(pos);
+		ratio = getratio(timeunit);
+		entitySTn = entityST / ratio;
+		entityETn = entityET / ratio;
+		elapsedn = entityETn - entitySTn;
+		if isempty(minstarts)
+			minstarts = entitySTn;
+		else
+			minstarts = min(minstarts, entitySTn);
+		end
+		if isempty(maxends)
+			maxends = entityETn;
+		else
+			maxends = max(maxends, entityETn);
+		end
+		if isempty(startTimes)
+			startTimes = entitySTn;
+		else
+			startTimes = [ '[' /]startTimes entitySTn[ ']' /];
+		end
+		if isempty(endTimes)
+			endTimes = entityETn;
+		else
+			endTimes = [ '[' /]endTimes entityETn[ ']' /];
+		end
+		elapsedn(isnan(elapsedn)) = 0;
+		halfmeanduration = halfmeanduration + elapsedn;
+	end
+	halfmeanduration = halfmeanduration / (2*simnum);
+	meanvect = (maxends + minstarts) / 2;
+	meanstarts = meanvect - halfmeanduration;
+	meanends = meanvect + halfmeanduration;
+	bk = barh(orderedIDs,zeros(1,maxid+1)+(maxRunTime / ratio), 'BarWidth', 1);
+	bk.LineStyle = "none";
+	[if aSystem.maxEntities = -1]
+	bk.FaceColor = "flat";
+	bk(1).FaceAlpha = 0.2;
+	for j = 1:maxid+1
+		bk.CData(j,:) = palette_picker((simnum - missing_occurrencies(j))/simnum);
+	end
+	[else]
+	bk(1).FaceColor = "none";
+	[/if]
+	hold on;
+	%{
+	if sum(isnan(minstarts)) ~= maxid
+		matrixn(1,:) = minstarts;
+		matrixn(2,:) = meanstarts - minstarts;
+		matrixn(3,:) = meanends - meanstarts;
+		matrixn(4,:) = maxends - meanends;
+		n = barh(orderedIDs, matrixn, "stacked");
+		n(1).FaceColor = "none";
+		n(1).EdgeColor = "none";
+		n(2).FaceColor = "cyan";
+		n(2).EdgeColor = "cyan";
+		n(3).FaceColor = "blue";
+		n(3).EdgeColor = "blue";
+		n(4).FaceColor = "cyan";
+		n(4).EdgeColor = "cyan";
+	else
+		n = barh([ '[' /][ ']' /]);
+	end
+	%}
+	set(gca, "YDir", "reverse");
+	%xlim([ '[' /]0 maxRunTime / ratio[ ']' /]);
+	xlabel(strcat("Production time (", timeunit, ")"));
+	ylabel("Order ID");
+	ylim([ '[' /]-0.5 maxid+0.5[ ']' /]);
+	yticks(0:maxid);
+	yticklabels(0:maxid);
+	ya = get(gca, 'YAxis');
+	ya.FontSize = floor(450/maxid);
+	%yt = get(gca, 'YTickLabel');
+	%set(gca, 'YTickLabel', yt, 'fontsize', floor(450/maxid));
+	title("Completed Orders");
+	cistartl = [ '[' /][ ']' /];
+	cistartu = [ '[' /][ ']' /];
+	ciendl = [ '[' /][ ']' /];
+	ciendu = [ '[' /][ ']' /];
+	confint = [ '[' /]0.025 0.975[ ']' /];
+	for j = 1:maxid+1
+		startv = rmmissing(startTimes(j,:));
+		endv = rmmissing(endTimes(j,:));
+		startSEM = std(startv) / sqrt(length(startv));
+		endSEM = std(endv) / sqrt(length(endv));
+		startts = tinv(confint, length(startv)-1);
+		endts = tinv(confint, length(endv)-1);
+		CIstart = mean(startv) + startts*startSEM;
+		CIend = mean(endv) + endts*endSEM;
+		cistartl = [ '[' /]cistartl;CIstart(1)[ ']' /];
+		cistartu = [ '[' /]cistartu;CIstart(2)[ ']' /];
+		ciendl = [ '[' /]ciendl;CIend(1)[ ']' /];
+		ciendu = [ '[' /]ciendu;CIend(2)[ ']' /];
+	end
+	cistartl(cistartl < 0) = 0;
+	ciendu(ciendu > maxRunTime / ratio) = maxRunTime / ratio;
+	cistartl((simnum - missing_occurrencies)/simnum <= 0.25) = NaN;
+	cistartu((simnum - missing_occurrencies)/simnum <= 0.25) = NaN;
+	ciendl((simnum - missing_occurrencies)/simnum <= 0.25) = NaN;
+	ciendu((simnum - missing_occurrencies)/simnum <= 0.25) = NaN;
+	cimat(1,:) = cistartl;
+	cimat(2,:) = cistartu - cistartl;
+	cimat(3,:) = ciendl - cistartu;
+	cimat(4,:) = ciendu - ciendl;
+	q = barh(orderedIDs, cimat, "stacked");
+	q(1).FaceColor = "none";
+	q(1).EdgeColor = "none";
+	q(2).FaceColor = "blue";
+	q(2).EdgeColor = "blue";
+	q(3).FaceAlpha = 0.4;
+	q(3).FaceColor = "blue";
+	q(3).EdgeColor = "blue";
+	q(4).FaceColor = "blue";
+	q(4).EdgeColor = "blue";
+	minstarts((simnum - missing_occurrencies)/simnum > 0.25) = NaN;
+	maxends((simnum - missing_occurrencies)/simnum > 0.25) = NaN;
+	matrixn(1,:) = minstarts;
+	matrixn(2,:) = maxends - minstarts;
+	n = barh(orderedIDs, matrixn, "stacked");
+	n(1).FaceColor = "none";
+	n(1).EdgeColor = "none";
+	n(2).FaceColor = "cyan";
+	n(2).FaceAlpha = 0.4;
+	n(2).EdgeColor = "cyan";
+	xlim([ '[' /]0 max(ciendu)[ ']' /]);
+	hold off;
+	%debug
+	dbg.minstarts =  minstarts;
+	dbg.maxends = maxends;
+	dbg.meanstarts = meanstarts;
+	dbg.meanends = meanends;
+	dbg.startTimes = startTimes;
+	dbg.endTimes = endTimes;
+	dbg.cistartl = cistartl;
+	dbg.ciendl = ciendl;
+	dbg.cistartu = cistartu;
+	dbg.ciendu = ciendu;
+	dbg.missing_occurrencies = missing_occurrencies;
+	assignin("base", "dbg", dbg);
+	%enddebug
+	n = names();
+	filepath = strcat(n.OUTPUTPATH, 'CompletedOrders.png');
+	saveas(f, filepath);
+	close(f);
+	xlimit = max(ciendu);
+end
+
+function ratio = getratio(timeunit)
+	if strcmp(timeunit, 'hours')
+		ratio = 3600;
+	elseif strcmp(timeunit, 'minutes')
+		ratio = 60;
+	else
+		ratio = 1;
+	end
+end
+
+function filepath = util_graph(activity, timeunit, simnum, maxRunTime, xgraphlimit)
+	name = activity{1};
+	servers = activity{2};
+	ratio = getratio(timeunit);
+	legendcontainer = {};
+	f = figure('Name', strcat(name, " Resources Utilization"), 'WindowState', 'fullscreen', 'NumberTitle', 'off','visible','off', 'Color', 'none');
+	set_background();
+	for j = 1:servers
+		if servers == 1
+			num = "";
+		else
+			num = int2str(j);
+		end
+		[ '[' /]x, y[ ']' /] = average_util_graph(name, simnum, num, maxRunTime);
+		plot(x/ratio,y);
+		if j == 1
+			hold on
+		end
+		legendcontainer{end+1} = strcat("Server ", int2str(j));
+	end
+	l = legend(legendcontainer);
+	xlim([ '[' /]0 xgraphlimit[ ']' /]);
+	ylabel("Utilization");
+	xlabel(strcat("Production time (", timeunit, ")"));
+	ylim([ '[' /]0 1[ ']' /]);
+	title(strcat(name, " Resources Utilization"));
+	l.Location = 'best';
+	l.NumColumns = ceil(servers/3);
+	hold off
+	n = names();
+	filepath = strcat(n.OUTPUTPATH, name, " Resources Utilization.png");
+	saveas(f, filepath);
+	close(f);
+end
+
+function [ '[' /]xa, ya[ ']' /] = average_util_graph(actname,simnum,servernum,maxRunTime)
+	xref = 0:1:maxRunTime;
+	sumvector = zeros([ '[' /]1 maxRunTime+1[ ']' /]);
+	for j = 1:simnum
+		if simnum == 1
+			str = "";
+		else
+			str = strcat("(", int2str(j), ")");
+		end
+		varName = strcat("out", str, ".",strrep(actname,' ',''),"Server",servernum,"Utilization");
+		data = evalin("base", varName);
+		if ~isempty(data.Time)
+			[ '[' /]time,positions[ ']' /] = unique(data.Time, "stable");
+			values = data.Data(positions);
+			if length(values) == 1
+				dn = values(1);
+			else
+				dn = interp1(time, values, xref);
+				dn(1:find(~isnan(dn),1)-1) = dn(find(~isnan(dn),1));
+				dn(find(~isnan(dn),1,"last")+1:end) = dn(find(~isnan(dn),1,"last"));
+			end
+			sumvector = sumvector + dn;
+		end
+	end
+	xa = xref;
+	ya = sumvector / simnum;
+end
+
+function [ '[' /]xa, ya[ ']' /] = average_wait_graph(actname,simnum,maxRunTime)
+	xref = 0:1:maxRunTime;
+	sumvector = zeros([ '[' /]1 maxRunTime+1[ ']' /]);
+	for j = 1:simnum
+		if simnum == 1
+			str = "";
+		else
+			str = strcat("(", int2str(j), ")");
+		end
+		varName = strcat("out", str, ".",strrep(actname,' ',''),"QueueAvgWait");
+		data = evalin("base", varName);
+		if ~isempty(data.Time)
+			[ '[' /]time,positions[ ']' /] = unique(data.Time, "stable");
+			values = data.Data(positions);
+			if length(values) == 1
+				dn = values(1);
+			else
+				dn = interp1(time, values, xref);
+				dn(1:find(~isnan(dn),1)-1) = dn(find(~isnan(dn),1));
+				dn(find(~isnan(dn),1,"last")+1:end) = dn(find(~isnan(dn),1,"last"));
+			end
+			sumvector = sumvector + dn;
+		end
+	end
+	xa = xref;
+	ya = sumvector / simnum;
+end
+
+function filepath = wait_graph(activities, numAct, timeunit, simnum, maxRunTime, xgraphlimit)
+	out = evalin("base", "out");
+	f = figure('Name', 'Average Wait Time', 'WindowState', 'fullscreen', 'NumberTitle', 'off','visible','off', 'Color', 'none');
+	set_background();
+	ratio = getratio(timeunit);
+	legendcontainer = {};
+	%palette = {'#4deeea', '#74ee15', '#ffe700', '#f000ff', '#001eff', '#666547', '#fb2e01', '#6fcb9f', '#ffe28a', '#fffeb3'};
+	palette = {'#F00','#F80','#808080','#0B0','#00F','#50F','#A0F', '#000', '#ffc0cb'};
+	for j = 1:numAct
+		[ '[' /]x, y[ ']' /] = average_wait_graph(activities{j}{1}, simnum, maxRunTime);
+		plot(x/ratio,y/ratio, LineWidth = 1);
+		if j == 1
+			hold on
+		end
+		legendcontainer{end+1} = activities{j}{1};
+	end
+	l = legend(legendcontainer);
+	xlim([ '[' /]0 xgraphlimit[ ']' /]);
+	ylabel(strcat("Average wait time (", timeunit, ")"));
+	xlabel(strcat("Production time (", timeunit, ")"));
+	colororder(palette);
+	l.Location = 'best';
+	l.NumColumns = floor(numAct/4);
+	l.FontSize = 6;
+	title("Average Wait Time");
+	hold off
+	n = names();
+	filepath = strcat(n.OUTPUTPATH, "AverageWaitTime.png");
+	saveas(f, filepath);
+	close(f);
+end
+
+function loggedstr = logging(str)
+	loggedstr = strcat("[ '[' /]", datestr(datetime), "[ ']' /] ", str,"...\n");
+end
+
+function bool = require(libs)
+	v = ver;
+	a = setdiff(libs, {v.Name});
+	if ~isempty(a)
+		fprintf('Missing libs:\n');
+		for i = 1:length(a)
+			fprintf(strcat(a(i), "\n"));
+		end
+		bool = false;
+		return;
+	end
+	bool = true;
+end
+
+function palette = palette_picker(percentage)
+	percentage_thresholds = [ '[' /]0.9999 0.75 0.5 0.25 0[ ']' /];
+	colors = [ '[' /][ '[' /]44, 186, 0[ ']' /]; [ '[' /]163, 255, 0[ ']' /]; [ '[' /]255, 244, 0[ ']' /]; [ '[' /]255, 167, 0[ ']' /]; [ '[' /]255, 174, 66[ ']' /][ ']' /];
+	for i = 1:length(percentage_thresholds)
+		if percentage > percentage_thresholds(i)
+			palette = colors(i,:) / 255;
+			return;
+		end
+	end
+	palette = [ '[' /]255, 0, 0[ ']' /];
+end
+[/file]
+[/template]
+
+[template public decode(element : Element, row : Integer, gateNum : Integer)]
+[if element.oclIsTypeOf(SimpleActivity)]
+mySystem([row/],:) = {'activity', '[element.name/]', {[element.oclAsType(SimpleActivity).bufferCapacity/], [element.eContents(ResourceDescriptor)->size()/], '[element.eContents(ResourceDescriptor)->first().serviceTimeDistributionType/]', {[for(p : Real | element.eContents(ResourceDescriptor)->first().serviceTimeDistributionParameters)][if element.eContents(ResourceDescriptor)->first().serviceTimeDistributionParameters->indexOf(p) <> 1], [/if][p/][/for]}}};
+activities{end+1} = {'[element.name/]', [element.eContents(ResourceDescriptor)->size()/]};
+[element.eContents(Element).decode(row+1, gateNum)/]
+[/if]
+[if element.oclIsTypeOf(MultiPath)]
+[let splitPaths : Sequence(PathToken) = element.eContents(PathToken)]
+[for (sp : PathToken | splitPaths)]
+[sp.eContents(Element).decodePath(splitPaths->indexOf(sp), 1, gateNum)/]
+[/for]
+[/let]
+[if element.oclAsType(MultiPath).logicalOperator = LogicalOperator::XOR]
+mySystem([row/],:) = {'xor', '[element.name/]', gateway[gateNum/]};
+[else]
+mySystem([row/],:) = {'and', '[element.name/]', gateway[gateNum/]};
+[/if]
+clearvars gateway[gateNum/]
+[element.eContents(Element).decode(row+1, gateNum)/]
+[/if][comment If Terminator, exit from template /]
+[/template]
+
+[template public decodePath(element : Element, path : Integer, row : Integer, gateNum : Integer)]
+[if element.oclIsTypeOf(SimpleActivity)]
+gateway[gateNum/]path[path/]([row/],:) = {'activity', '[element.name/]', {[element.oclAsType(SimpleActivity).bufferCapacity/], [element.eContents(ResourceDescriptor)->size()/], '[element.eContents(ResourceDescriptor)->first().serviceTimeDistributionType/]', {[for(p : Real | element.eContents(ResourceDescriptor)->first().serviceTimeDistributionParameters)][if element.eContents(ResourceDescriptor)->first().serviceTimeDistributionParameters->indexOf(p) <> 1], [/if][p/][/for]}}};
+activities{end+1} = {'[element.name/]', [element.eContents(ResourceDescriptor)->size()/]};
+[element.eContents(Element).decodePath(path, row+1, gateNum)/]
+[/if]
+[if element.oclIsTypeOf(MultiPath)]
+[let splitPaths : Sequence(PathToken) = element.eContents(PathToken)]
+[for (sp : PathToken | splitPaths)]
+[sp.eContents(Element).decodePath(splitPaths->indexOf(sp), 1, gateNum+1)/]
+[/for]
+[/let]
+[if element.oclAsType(MultiPath).logicalOperator = LogicalOperator::XOR]
+gateway[gateNum/]path[path/]([row/],:) = {'xor', '[element.name/]', gateway[gateNum+1/]};
+[else]
+gateway[gateNum/]path[path/]([row/],:) = {'and', '[element.name/]', gateway[gateNum+1/]};
+[/if]
+clearvars gateway[gateNum+1/]
+[element.eContents(Element).decodePath(path, row+1, gateNum)/]
+[/if]
+[if element.oclIsTypeOf(EndToken)]
+try
+	gateway[gateNum/]{1,[path/]} = gateway[gateNum/]path[path/];
+catch
+	gateway[gateNum/]{1,[path/]} = {};
+end
+clearvars gateway[gateNum/]path[path/]
+[/if]
+[/template]
